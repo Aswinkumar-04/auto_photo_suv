@@ -6,6 +6,7 @@ import hashlib
 import threading
 import logging
 import datetime
+import random
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from PIL import Image, ImageOps
@@ -28,6 +29,12 @@ from backend import database
 from backend.face_engine import get_face_engine
 
 logger = logging.getLogger("drive_sync")
+
+# Retry and throttle configuration for key-free Drive access
+MAX_DOWNLOAD_RETRIES = 3          # Retry failed folder downloads up to 3 times
+RETRY_BASE_DELAY = 5              # Base delay in seconds (doubles each retry)
+DOWNLOAD_THROTTLE_DELAY = 0.5     # Seconds to wait between individual file downloads
+AUTO_SYNC_QUIET_INTERVAL = 10     # Seconds between auto-sync checks
 
 
 def extract_folder_id(url_or_id: str) -> Optional[str]:
@@ -189,6 +196,7 @@ class SyncManager:
             "processed_files": 0,
             "new_photos": 0,
             "new_faces": 0,
+            "skipped_existing": 0,
             "errors": [],
         }
 
@@ -196,22 +204,47 @@ class SyncManager:
         temp_download_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            # 1. Download unauthenticated using gdown with resume=True to avoid re-downloading unchanged files
+            # 1. Download with retry and exponential backoff for rate-limit resilience
             self.progress["message"] = "Downloading files from public Google Drive folder..."
             logger.info(f"Syncing Google Drive folder {folder_id} into {temp_download_dir}...")
 
-            downloaded_paths = gdown.download_folder(
-                id=folder_id,
-                output=str(temp_download_dir),
-                quiet=True,
-                resume=True,
-                use_cookies=False,
-            )
+            downloaded_paths = None
+            last_error = None
+
+            for attempt in range(1, MAX_DOWNLOAD_RETRIES + 1):
+                try:
+                    downloaded_paths = gdown.download_folder(
+                        id=folder_id,
+                        output=str(temp_download_dir),
+                        quiet=True,
+                        resume=True,
+                        use_cookies=False,
+                    )
+                    if downloaded_paths is not None:
+                        break  # Success
+                except Exception as e:
+                    last_error = e
+                    if attempt < MAX_DOWNLOAD_RETRIES:
+                        # Exponential backoff with jitter to avoid hammering Google
+                        delay = RETRY_BASE_DELAY * (2 ** (attempt - 1)) + random.uniform(0, 2)
+                        logger.warning(
+                            f"Drive download attempt {attempt}/{MAX_DOWNLOAD_RETRIES} failed: {e}. "
+                            f"Retrying in {delay:.1f}s..."
+                        )
+                        self.progress["message"] = (
+                            f"Download attempt {attempt} failed, retrying in {delay:.0f}s..."
+                        )
+                        time.sleep(delay)
+                    else:
+                        logger.error(f"All {MAX_DOWNLOAD_RETRIES} download attempts failed.")
 
             if downloaded_paths is None:
+                error_detail = str(last_error) if last_error else "Unknown error"
                 raise RuntimeError(
-                    "Could not access Google Drive folder. Please verify the folder link and ensure "
-                    "that sharing permissions are set to 'Anyone with the link can view'."
+                    f"Could not access Google Drive folder after {MAX_DOWNLOAD_RETRIES} attempts. "
+                    f"Last error: {error_detail}. "
+                    f"Please verify the folder link and ensure sharing is set to "
+                    f"'Anyone with the link can view'."
                 )
 
             # 2. Collect all downloaded images recursively
@@ -234,12 +267,42 @@ class SyncManager:
                 database.set_setting("sync_message", self.progress["message"])
                 return
 
-            # 3. Process each image for face detection and embeddings
+            # 3. Pre-filter: skip files whose SHA256 already exists in DB to save processing time
+            new_image_files: List[Path] = []
+            for img_path in image_files:
+                try:
+                    file_hash = calculate_sha256(img_path)
+                    existing = database.get_photo_by_hash(file_hash)
+                    if existing:
+                        self.progress["skipped_existing"] += 1
+                    else:
+                        new_image_files.append(img_path)
+                except Exception:
+                    new_image_files.append(img_path)  # Process it anyway, let process_image_file handle errors
+
+            if len(new_image_files) == 0:
+                summary = (
+                    f"Sync complete. All {len(image_files)} photos already indexed. "
+                    f"No new photos to process."
+                )
+                self.progress["status"] = "completed"
+                self.progress["message"] = summary
+                database.set_setting("sync_status", "completed")
+                database.set_setting("sync_message", summary)
+                now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                database.set_setting("last_synced_at", now_iso)
+                logger.info(summary)
+                return
+
+            self.progress["total_files"] = len(new_image_files)
+            logger.info(f"{len(new_image_files)} new photos to process ({self.progress['skipped_existing']} already indexed).")
+
+            # 4. Process each NEW image for face detection and embeddings
             face_engine = get_face_engine()
 
-            for idx, img_path in enumerate(image_files, 1):
+            for idx, img_path in enumerate(new_image_files, 1):
                 self.progress["processed_files"] = idx
-                self.progress["message"] = f"Processing photo {idx} of {len(image_files)}: {img_path.name}"
+                self.progress["message"] = f"Processing new photo {idx} of {len(new_image_files)}: {img_path.name}"
 
                 try:
                     result = self.process_image_file(img_path, source="drive", face_engine=face_engine)
@@ -251,12 +314,20 @@ class SyncManager:
                     logger.warning(err_msg)
                     self.progress["errors"].append(err_msg)
 
-            # 4. Finalize
+                # Small throttle delay between files to avoid overwhelming resources
+                if idx < len(new_image_files) and DOWNLOAD_THROTTLE_DELAY > 0:
+                    time.sleep(DOWNLOAD_THROTTLE_DELAY)
+
+            # 5. Finalize
             now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
             summary = (
-                f"Sync complete. Processed {len(image_files)} photos: "
-                f"{self.progress['new_photos']} new photos added, {self.progress['new_faces']} faces indexed."
+                f"Sync complete. {self.progress['new_photos']} new photos added, "
+                f"{self.progress['new_faces']} faces indexed, "
+                f"{self.progress['skipped_existing']} already existed."
             )
+            if self.progress["errors"]:
+                summary += f" ({len(self.progress['errors'])} errors)"
+
             self.progress["status"] = "completed"
             self.progress["message"] = summary
             database.set_setting("sync_status", "completed")
