@@ -4,6 +4,19 @@ from pathlib import Path
 
 # Base Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load .env file automatically if present
+env_file = BASE_DIR / ".env"
+if env_file.exists():
+    with open(env_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, val = line.split("=", 1)
+                key = key.strip()
+                val = val.strip().strip("'\"")
+                if key and key not in os.environ:
+                    os.environ[key] = val
 STORAGE_DIR = BASE_DIR / "storage"
 PHOTOS_DIR = STORAGE_DIR / "photos"
 THUMBNAILS_DIR = STORAGE_DIR / "thumbnails"
