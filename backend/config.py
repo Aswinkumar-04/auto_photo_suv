@@ -38,6 +38,9 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 SECRET_KEY = os.getenv("SECRET_KEY", "auto-photo-session-secret-key-change-in-prod-2026")
 SESSION_COOKIE_NAME = "auto_photo_session"
 
+# Google Drive API Configuration (Optional: Official API v3, falls back to direct unauthenticated sync if empty)
+GOOGLE_DRIVE_API_KEY = os.getenv("GOOGLE_DRIVE_API_KEY", "")
+
 # Image processing configuration
 try:
     import pillow_heif

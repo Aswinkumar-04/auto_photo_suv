@@ -7,6 +7,7 @@ import threading
 import logging
 import datetime
 import random
+import requests
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from PIL import Image, ImageOps
@@ -24,6 +25,7 @@ from backend.config import (
     STORAGE_DIR,
     SUPPORTED_EXTENSIONS,
     THUMBNAIL_SIZE,
+    GOOGLE_DRIVE_API_KEY,
 )
 from backend import database
 from backend.face_engine import get_face_engine
@@ -186,12 +188,74 @@ class SyncManager:
         """Stop the background auto-sync worker."""
         self._stop_auto_sync = True
 
+    def _sync_via_google_api(self, folder_id: str, temp_download_dir: Path, api_key: str) -> List[Path]:
+        """Direct official Google Drive API v3 sync: fast, paginated, zero-intermediate."""
+        logger.info(f"Using direct Google Drive API v3 with provided API Key for folder {folder_id}...")
+        self.progress["message"] = "Fetching file list via Google Drive API..."
+        
+        # 1. List files in folder with pagination
+        files = []
+        page_token = None
+        base_url = "https://www.googleapis.com/drive/v3/files"
+
+        while True:
+            params = {
+                "q": f"'{folder_id}' in parents and trashed = false",
+                "fields": "nextPageToken, files(id, name, mimeType, size)",
+                "pageSize": 100,
+                "key": api_key,
+            }
+            if page_token:
+                params["pageToken"] = page_token
+
+            res = requests.get(base_url, params=params, timeout=20)
+            if res.status_code != 200:
+                raise RuntimeError(f"Google Drive API error ({res.status_code}): {res.text}")
+
+            data = res.json()
+            for item in data.get("files", []):
+                ext = Path(item["name"]).suffix.lower()
+                if ext in SUPPORTED_EXTENSIONS or item.get("mimeType", "").startswith("image/"):
+                    files.append(item)
+
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+
+        logger.info(f"Google Drive API discovered {len(files)} image files.")
+        downloaded_paths = []
+
+        # 2. Download files directly via alt=media
+        for idx, file_meta in enumerate(files, 1):
+            file_id = file_meta["id"]
+            file_name = file_meta["name"]
+            dest_file = temp_download_dir / file_name
+
+            self.progress["message"] = f"API downloading photo {idx}/{len(files)}: {file_name}"
+
+            # If file already downloaded in temp and intact, skip re-download
+            if not dest_file.exists():
+                download_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={api_key}"
+                resp = requests.get(download_url, stream=True, timeout=60)
+                if resp.status_code == 200:
+                    with open(dest_file, "wb") as f:
+                        for chunk in resp.iter_content(chunk_size=65536):
+                            if chunk:
+                                f.write(chunk)
+                else:
+                    logger.warning(f"Could not download {file_name} via API: status {resp.status_code}")
+                    continue
+
+            downloaded_paths.append(dest_file)
+
+        return downloaded_paths
+
     def _run_sync_pipeline(self, folder_id: str):
-        """Worker thread executing the unauthenticated Google Drive download and face indexing."""
+        """Worker thread executing Google Drive download (API or unauthenticated) and face indexing."""
         self.is_syncing = True
         self.progress = {
             "status": "syncing",
-            "message": "Connecting to Google Drive public folder...",
+            "message": "Connecting to Google Drive folder...",
             "total_files": 0,
             "processed_files": 0,
             "new_photos": 0,
@@ -204,56 +268,56 @@ class SyncManager:
         temp_download_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            # 1. Download with retry and exponential backoff for rate-limit resilience
-            self.progress["message"] = "Downloading files from public Google Drive folder..."
-            logger.info(f"Syncing Google Drive folder {folder_id} into {temp_download_dir}...")
+            api_key = os.getenv("GOOGLE_DRIVE_API_KEY", GOOGLE_DRIVE_API_KEY).strip()
 
-            downloaded_paths = None
-            last_error = None
+            if api_key:
+                # Direct Google Cloud Drive API v3 path
+                image_files = self._sync_via_google_api(folder_id, temp_download_dir, api_key)
+            else:
+                # Key-free direct download fallback with exponential backoff
+                self.progress["message"] = "Downloading files from public Google Drive folder..."
+                logger.info(f"Syncing Google Drive folder {folder_id} into {temp_download_dir}...")
 
-            for attempt in range(1, MAX_DOWNLOAD_RETRIES + 1):
-                try:
-                    downloaded_paths = gdown.download_folder(
-                        id=folder_id,
-                        output=str(temp_download_dir),
-                        quiet=True,
-                        resume=True,
-                        use_cookies=False,
+                downloaded_paths = None
+                last_error = None
+
+                for attempt in range(1, MAX_DOWNLOAD_RETRIES + 1):
+                    try:
+                        downloaded_paths = gdown.download_folder(
+                            id=folder_id,
+                            output=str(temp_download_dir),
+                            quiet=True,
+                            resume=True,
+                            use_cookies=False,
+                        )
+                        if downloaded_paths is not None:
+                            break  # Success
+                    except Exception as e:
+                        last_error = e
+                        if attempt < MAX_DOWNLOAD_RETRIES:
+                            delay = RETRY_BASE_DELAY * (2 ** (attempt - 1)) + random.uniform(0, 2)
+                            logger.warning(
+                                f"Drive download attempt {attempt}/{MAX_DOWNLOAD_RETRIES} failed: {e}. Retrying in {delay:.1f}s..."
+                            )
+                            self.progress["message"] = f"Download attempt {attempt} failed, retrying in {delay:.0f}s..."
+                            time.sleep(delay)
+                        else:
+                            logger.error(f"All {MAX_DOWNLOAD_RETRIES} download attempts failed.")
+
+                if downloaded_paths is None:
+                    error_detail = str(last_error) if last_error else "Unknown error"
+                    raise RuntimeError(
+                        f"Could not access Google Drive folder after {MAX_DOWNLOAD_RETRIES} attempts. "
+                        f"Last error: {error_detail}. "
+                        f"Please verify the folder link and ensure sharing is set to 'Anyone with the link can view'."
                     )
-                    if downloaded_paths is not None:
-                        break  # Success
-                except Exception as e:
-                    last_error = e
-                    if attempt < MAX_DOWNLOAD_RETRIES:
-                        # Exponential backoff with jitter to avoid hammering Google
-                        delay = RETRY_BASE_DELAY * (2 ** (attempt - 1)) + random.uniform(0, 2)
-                        logger.warning(
-                            f"Drive download attempt {attempt}/{MAX_DOWNLOAD_RETRIES} failed: {e}. "
-                            f"Retrying in {delay:.1f}s..."
-                        )
-                        self.progress["message"] = (
-                            f"Download attempt {attempt} failed, retrying in {delay:.0f}s..."
-                        )
-                        time.sleep(delay)
-                    else:
-                        logger.error(f"All {MAX_DOWNLOAD_RETRIES} download attempts failed.")
 
-            if downloaded_paths is None:
-                error_detail = str(last_error) if last_error else "Unknown error"
-                raise RuntimeError(
-                    f"Could not access Google Drive folder after {MAX_DOWNLOAD_RETRIES} attempts. "
-                    f"Last error: {error_detail}. "
-                    f"Please verify the folder link and ensure sharing is set to "
-                    f"'Anyone with the link can view'."
-                )
-
-            # 2. Collect all downloaded images recursively
-            image_files: List[Path] = []
-            for root, _, files in os.walk(temp_download_dir):
-                for f in files:
-                    ext = Path(f).suffix.lower()
-                    if ext in SUPPORTED_EXTENSIONS:
-                        image_files.append(Path(root) / f)
+                image_files: List[Path] = []
+                for root, _, files in os.walk(temp_download_dir):
+                    for f in files:
+                        ext = Path(f).suffix.lower()
+                        if ext in SUPPORTED_EXTENSIONS:
+                            image_files.append(Path(root) / f)
 
             self.progress["total_files"] = len(image_files)
             logger.info(f"Found {len(image_files)} image files in Google Drive folder.")
