@@ -1,0 +1,35 @@
+# Python bytecode and environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+
+# Testing & Cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local Storage (Render persistent disk mounts to /app/storage)
+storage/photos/*
+!storage/photos/.gitkeep
+storage/thumbnails/*
+!storage/thumbnails/.gitkeep
+storage/selfies/*
+!storage/selfies/.gitkeep
+storage/drive_temp/*
+!storage/drive_temp/.gitkeep
+storage/*.db
+storage/*.db-journal
+
+# Environment secrets
+.env
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini

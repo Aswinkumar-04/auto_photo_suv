@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: suv-photography-gallery
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    autoDeploy: true
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: ADMIN_PASSWORD
+        value: admin123
+      - key: FACE_MATCH_THRESHOLD
+        value: "0.363"
+

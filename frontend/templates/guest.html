@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Find My Photos | SUV Photography</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="stylesheet" href="/static/css/app.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Great+Vibes&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #12060a;
+            background-image: 
+                radial-gradient(circle at 50% 0%, rgba(74, 21, 33, 0.45) 0%, transparent 65%),
+                radial-gradient(circle at 100% 100%, rgba(51, 14, 22, 0.3) 0%, transparent 50%);
+            color: #f8f5f0;
+            min-height: 100vh;
+        }
+
+        .guest-wrapper {
+            width: 100%;
+            max-width: 520px;
+            margin: 0 auto;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 16px 16px 40px;
+            box-sizing: border-box;
+        }
+
+        .header-guest {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 24px 16px 28px;
+            width: 100%;
+            margin: 0 auto;
+            box-sizing: border-box;
+        }
+
+        .brand-logo-guest {
+            display: block;
+            margin: 0 auto 16px auto;
+            height: 62px;
+            max-width: 280px;
+            width: auto;
+            object-fit: contain;
+            filter: drop-shadow(0 4px 16px rgba(200, 164, 90, 0.35));
+        }
+
+        .brand-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            background: rgba(200, 164, 90, 0.12);
+            border: 1px solid rgba(200, 164, 90, 0.35);
+            color: var(--color-gold-light);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            padding: 6px 18px;
+            border-radius: 999px;
+            margin: 0 auto 14px auto;
+        }
+
+        .event-script-title {
+            font-family: var(--font-accent);
+            color: var(--color-gold);
+            font-size: 2.3rem;
+            line-height: 1.1;
+            margin: 0 auto 4px auto;
+            text-shadow: 0 2px 10px rgba(200, 164, 90, 0.2);
+            text-align: center;
+            width: 100%;
+            display: block;
+        }
+
+        .event-title {
+            font-family: var(--font-heading);
+            font-size: 2.1rem;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+            margin: 0 auto 8px auto;
+            color: #ffffff;
+            text-align: center;
+            width: 100%;
+            display: block;
+            line-height: 1.2;
+            word-break: break-word;
+        }
+
+        .event-desc {
+            color: #cbbab3;
+            font-size: 14px;
+            font-weight: 300;
+            max-width: 480px;
+            margin: 0 auto;
+            text-align: center;
+            display: block;
+            line-height: 1.5;
+        }
+
+        /* Laptop & Tablet Responsive View */
+        @media (min-width: 768px) {
+            .guest-wrapper {
+                max-width: 920px;
+                padding: 30px 24px 60px;
+            }
+
+            .header-guest {
+                padding: 32px 20px 34px;
+            }
+
+            .brand-logo-guest {
+                height: 74px;
+                max-width: 320px;
+                margin-bottom: 20px;
+            }
+
+            .event-title {
+                font-size: 2.6rem;
+            }
+
+            .event-script-title {
+                font-size: 2.8rem;
+            }
+
+            .event-desc {
+                font-size: 15px;
+                max-width: 540px;
+            }
+
+            .camera-card {
+                max-width: 420px;
+                margin: 0 auto 32px auto;
+            }
+
+            .photo-grid {
+                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                gap: 20px;
+            }
+        }
+
+        @media (min-width: 1100px) {
+            .guest-wrapper {
+                max-width: 1080px;
+            }
+
+            .photo-grid {
+                grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+                gap: 24px;
+            }
+        }
+
+        /* Camera Viewfinder Card */
+        .camera-card {
+            background: #1c0a11;
+            border: 1px solid rgba(200, 164, 90, 0.35);
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), 0 0 20px rgba(74, 21, 33, 0.35);
+            margin-bottom: 24px;
+        }
+
+        .viewfinder-wrap {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 3/4;
+            background: #0d0407;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        #guest-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        #guest-video.environment {
+            transform: scaleX(1);
+        }
+
+        #guest-canvas {
+            display: none;
+        }
+
+        #guest-preview-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+        }
+
+        .face-oval-guide {
+            position: absolute;
+            width: 58%;
+            aspect-ratio: 3/4;
+            border: 2px dashed rgba(200, 164, 90, 0.65);
+            border-radius: 50%;
+            pointer-events: none;
+            box-shadow: 0 0 0 9999px rgba(10, 3, 6, 0.45);
+        }
+
+        .viewfinder-controls {
+            position: absolute;
+            bottom: 22px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 0 24px;
+            z-index: 10;
+        }
+
+        /* Shutter Button (Gold & Wine) */
+        .btn-snap {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            background: var(--gold-gradient);
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 15px rgba(200, 164, 90, 0.4);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: var(--transition);
+        }
+
+        .btn-snap:active {
+            transform: scale(0.92);
+        }
+
+        .btn-snap-inner {
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            background: var(--color-primary);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            transition: var(--transition);
+        }
+
+        .btn-snap:hover .btn-snap-inner {
+            background: var(--color-burgundy);
+        }
+
+        .btn-circle-control {
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            background: rgba(28, 10, 17, 0.75);
+            border: 1px solid rgba(200, 164, 90, 0.35);
+            backdrop-filter: blur(8px);
+            color: var(--color-gold-light);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: var(--transition);
+        }
+
+        .btn-circle-control:hover {
+            background: var(--color-primary);
+            color: white;
+            border-color: var(--color-gold);
+            transform: scale(1.08);
+        }
+
+        /* Scanning Radar Animation */
+        .scanning-radar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, transparent, var(--color-gold), #fff, var(--color-gold), transparent);
+            box-shadow: 0 0 20px var(--color-gold);
+            display: none;
+            animation: scanMove 1.6s ease-in-out infinite alternate;
+        }
+
+        @keyframes scanMove {
+            0% { top: 5%; opacity: 0.3; }
+            50% { opacity: 1; }
+            100% { top: 95%; opacity: 0.3; }
+        }
+
+        /* Results Section */
+        .results-section {
+            display: none;
+            margin-top: 14px;
+        }
+
+        .match-banner {
+            background: linear-gradient(135deg, #380e18 0%, #1c060d 100%);
+            border: 1px solid rgba(200, 164, 90, 0.45);
+            border-radius: 18px;
+            padding: 18px 22px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 22px;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4), 0 0 20px rgba(74, 21, 33, 0.25);
+        }
+
+        .match-count-heading {
+            font-family: var(--font-heading);
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #ffffff;
+            line-height: 1.1;
+        }
+
+        .privacy-box {
+            margin-top: auto;
+            text-align: center;
+            padding: 24px 10px 10px;
+            color: #9c8983;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .privacy-box strong {
+            color: var(--color-gold);
+        }
+    </style>
+</head>
+<body>
+    <div class="guest-wrapper">
+        <!-- Event Header with SUV Photography Branding -->
+        <header class="header-guest">
+            <img src="/static/logo_white.png" alt="SUV Photography Logo" class="brand-logo-guest">
+            <div class="brand-pill">✨ Instant Guest Gallery</div>
+            <div class="event-script-title">Timeless Moments</div>
+            <h1 id="event-name-display" class="event-title">Event Photos</h1>
+            <p class="event-desc">Take a quick selfie to discover every picture capturing your smile.</p>
+        </header>
+
+        <!-- Camera & Selfie Viewfinder Card -->
+        <div id="camera-card" class="camera-card">
+            <div class="viewfinder-wrap">
+                <!-- Video Stream -->
+                <video id="guest-video" autoplay playsinline muted></video>
+                <!-- Canvas for capture -->
+                <canvas id="guest-canvas"></canvas>
+                <!-- Snapshot Preview -->
+                <img id="guest-preview-img" alt="Selfie preview">
+                <!-- Face Guide Oval in Champagne Gold -->
+                <div id="face-guide" class="face-oval-guide"></div>
+                <!-- Scanning radar effect -->
+                <div id="scan-radar" class="scanning-radar"></div>
+
+                <!-- Live Camera Controls -->
+                <div id="live-controls" class="viewfinder-controls">
+                    <!-- Switch Camera Button -->
+                    <button id="switch-camera-btn" class="btn-circle-control" title="Flip Camera">
+                        🔄
+                    </button>
+                    <!-- Big Snap Button -->
+                    <button id="snap-btn" class="btn-snap" title="Take Selfie">
+                        <div class="btn-snap-inner"></div>
+                    </button>
+                    <!-- Upload From File Button -->
+                    <label class="btn-circle-control" style="cursor:pointer;" title="Upload Photo">
+                        📁
+                        <input type="file" id="file-upload-input" accept="image/*" style="display:none;">
+                    </label>
+                </div>
+
+                <!-- Preview State Controls -->
+                <div id="preview-controls" class="viewfinder-controls" style="display:none;">
+                    <button id="retake-btn" class="btn btn-secondary btn-sm" style="background:rgba(255,255,255,0.15); color:white; border-color:rgba(200,164,90,0.3);">
+                        ↺ Retake
+                    </button>
+                    <button id="search-btn" class="btn btn-gold" style="padding:11px 26px;">
+                        🔍 Find My Photos
+                    </button>
+                </div>
+            </div>
+
+            <!-- Status Banner / Messages -->
+            <div id="camera-status" style="padding:14px; text-align:center; font-size:13px; color:#d6c7c0; background:#14070c; border-top:1px solid rgba(200, 164, 90, 0.25);">
+                Position your face inside the golden oval and tap the button to snap a selfie.
+            </div>
+        </div>
+
+        <!-- Feedback Alert for Errors / Retries -->
+        <div id="guest-alert" class="alert alert-warning" style="display:none;"></div>
+
+        <!-- Matched Photos Results Section -->
+        <section id="results-section" class="results-section">
+            <div class="match-banner">
+                <div>
+                    <div style="font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:var(--color-gold-light); font-weight:700;">Matching Frames</div>
+                    <div id="match-count-text" class="match-count-heading">Found 0 photos of you! 🎉</div>
+                </div>
+                <button id="download-zip-btn" class="btn btn-gold btn-sm">
+                    ⬇️ Download All (ZIP)
+                </button>
+            </div>
+
+            <div id="guest-photo-grid" class="photo-grid">
+                <!-- Matched cards injected here -->
+            </div>
+        </section>
+
+        <!-- No Matches Empty State -->
+        <div id="no-matches-card" class="card" style="display:none; text-align:center; padding:38px 24px; background:#1c0a11; border-color:rgba(200,164,90,0.3);">
+            <div style="font-size:48px; margin-bottom:12px; color:var(--color-gold);">📷</div>
+            <h3 style="font-size:1.6rem; font-weight:600; margin-bottom:8px; color:#ffffff;">No Matching Photos Found</h3>
+            <p style="color:#bda8a1; font-size:13.5px; margin-bottom:22px; line-height:1.6;">
+                We couldn't detect your face in the current gallery photos yet. Ensure your face is evenly lit and facing forward, or the studio may still be syncing additional ceremony rolls!
+            </p>
+            <button id="try-again-btn" class="btn btn-gold btn-sm">
+                ↺ Try Another Selfie
+            </button>
+        </div>
+
+        <!-- Privacy Assurance Footer -->
+        <footer class="privacy-box">
+            🔒 <strong>SUV Photography Guest Privacy Guarantee:</strong>
+            Your selfie is securely processed to locate your memories and is never stored, sold, or displayed to other guests.
+        </footer>
+    </div>
+
+    <!-- Lightbox Modal -->
+    <div id="guest-lightbox" class="lightbox-modal">
+        <button id="guest-lightbox-close" class="lightbox-close">✕</button>
+        <div class="lightbox-img-wrapper">
+            <img id="guest-lightbox-img" src="" alt="High-Res Photo">
+        </div>
+        <div class="lightbox-bar">
+            <a id="guest-lightbox-download" href="" class="btn btn-gold" download>
+                ⬇️ Download High-Res Photo
+            </a>
+        </div>
+    </div>
+
+    <script src="/static/js/guest.js"></script>
+</body>
+</html>

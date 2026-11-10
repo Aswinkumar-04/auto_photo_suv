@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Host Portal | SUV Photography</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="stylesheet" href="/static/css/app.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Great+Vibes&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Top Navigation Header -->
+    <header class="app-header">
+        <div class="container header-content">
+            <a href="/dashboard" class="brand-wrapper">
+                <img src="/static/logo_dark.png" alt="SUV Photography Logo" class="brand-logo-img">
+                <div class="brand-title-wrap">
+                    <span id="nav-event-name" class="brand-title-main">SUV Photography</span>
+                    <span class="brand-subtitle-tag">Luxury Studio Host Portal</span>
+                </div>
+            </a>
+            <div style="display:flex; align-items:center; gap:12px;">
+                <a href="/guest" target="_blank" class="btn btn-outline btn-sm">
+                    <span>Guest View</span> ↗
+                </a>
+                <button id="logout-btn" class="btn btn-secondary btn-sm">
+                    <span>Logout</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="container" style="padding-top:28px; padding-bottom:70px;">
+        <!-- Alert Notification Box -->
+        <div id="dashboard-alert" class="alert" style="display:none;"></div>
+
+        <!-- 2-Column Main Row -->
+        <div class="grid-2">
+            <!-- Left Card: Event QR Code -->
+            <div class="card">
+                <h2 class="card-title">
+                    <span>📱</span> Default Event QR Code
+                </h2>
+                <p class="card-subtitle">Display or print this QR code for wedding and event guests to instantly scan and access their photos.</p>
+
+                <div class="qr-preview-box">
+                    <div class="qr-image-wrapper">
+                        <img id="qr-img" src="" alt="Event QR Code" style="opacity:0; transition:opacity 0.3s;">
+                    </div>
+
+                    <div style="width:100%; max-width:400px; margin-bottom:18px;">
+                        <label class="form-label" style="text-align:left;">Guest Page Link (Mobile URL):</label>
+                        <div style="display:flex; gap:8px;">
+                            <input type="text" id="guest-url-input" class="form-control" style="font-size:13px; font-family:monospace;" readonly>
+                            <button id="copy-url-btn" class="btn btn-secondary btn-sm" title="Copy URL">📋 Copy</button>
+                        </div>
+                        <small style="color:var(--color-muted); font-size:12px; display:block; margin-top:6px; text-align:left;">
+                            Auto-configured with your Wi-Fi LAN IP so guest mobile devices on the same network connect immediately.
+                        </small>
+                    </div>
+
+                    <div style="display:flex; gap:12px; flex-wrap:wrap; justify-content:center;">
+                        <a id="download-qr-btn" href="/api/dashboard/qr/download" class="btn btn-primary btn-sm">
+                            ⬇️ Download QR PNG
+                        </a>
+                        <a href="/dashboard/print-card" target="_blank" class="btn btn-gold btn-sm">
+                            🖨️ Print Studio Table Card
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Card: Google Drive Sync -->
+            <div class="card">
+                <h2 class="card-title">
+                    <span>☁️</span> Google Drive Photo Ingestion
+                </h2>
+                <p class="card-subtitle">Paste your public Google Drive event folder link to automatically sync, convert, and index all high-res photos.</p>
+
+                <div class="form-group">
+                    <label class="form-label" for="drive-url">Google Drive Folder Link or ID:</label>
+                    <input type="text" id="drive-url" class="form-control" placeholder="https://drive.google.com/drive/folders/1ABC_xyz...">
+                </div>
+
+                <div style="display:flex; gap:10px; margin-bottom:12px;">
+                    <button id="sync-btn" class="btn btn-primary" style="flex:1;">
+                        <span>🔄 Sync Photos Now</span>
+                    </button>
+                    <button id="resync-btn" class="btn btn-secondary" title="Check for newly added photos">
+                        Re-sync
+                    </button>
+                </div>
+
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:8px;">
+                    <div class="auto-sync-indicator" id="auto-sync-badge">
+                        <span class="pulse-dot"></span>
+                        <span>Auto-Sync: Active (Every 10s)</span>
+                    </div>
+                    <span style="font-size:11.5px; color:var(--color-muted);">Continuous auto-pickup for newly uploaded photos</span>
+                </div>
+
+                <!-- Sync Progress State -->
+                <div id="sync-status-card" style="background:#faf8f5; border:1px solid var(--color-border); border-radius:var(--radius-md); padding:16px; margin-bottom:18px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <span style="font-size:12.5px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--color-heading);">Sync Status:</span>
+                        <span id="sync-status-badge" style="font-size:11px; font-weight:700; letter-spacing:1px; padding:3px 10px; border-radius:999px; background:#ebe7e0; color:var(--color-primary);">
+                            IDLE
+                        </span>
+                    </div>
+                    <div id="sync-message" style="font-size:13px; color:var(--color-body-text); margin-bottom:8px;">Ready to sync photos.</div>
+                    <div id="sync-progress-bar-wrap" class="progress-bar-container" style="display:none;">
+                        <div id="sync-progress-bar" class="progress-bar-fill"></div>
+                    </div>
+                    <div id="last-synced-time" style="font-size:11px; color:var(--color-muted);"></div>
+                </div>
+
+                <!-- Key-free Drive Notice -->
+                <div class="alert alert-info" style="font-size:12.5px; line-height:1.5;">
+                    ℹ️ <strong>Google Drive Requirement:</strong> Set folder sharing to <em>"Anyone with the link can view"</em>. Supports JPEG, PNG, WEBP, and iPhone <strong>.HEIC</strong> formats automatically.
+                </div>
+
+                <!-- Direct Upload Dropzone (Host Alternative) -->
+                <div style="margin-top:18px; border-top:1px solid var(--color-border); padding-top:16px;">
+                    <label class="form-label">Or Direct Upload Photos:</label>
+                    <div id="dropzone" class="dropzone">
+                        <div class="dropzone-icon">📷</div>
+                        <div style="font-weight:600; font-size:14px; margin-bottom:4px; color:var(--color-heading);">Drag & Drop Photos Here</div>
+                        <div style="font-size:12px; color:var(--color-muted); margin-bottom:12px;">or browse from your SD card / laptop</div>
+                        <input type="file" id="direct-upload-input" multiple accept="image/*,.heic,.heif" style="display:none;">
+                        <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('direct-upload-input').click()">
+                            Browse Files
+                        </button>
+                    </div>
+                    <div id="upload-status" style="font-size:12.5px; color:var(--color-primary); font-weight:600; margin-top:8px; display:none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Middle Card: Event Stats & Face Recognition Settings -->
+        <div class="card">
+            <h2 class="card-title">
+                <span>⚙️</span> Event Statistics & AI Matching Config
+            </h2>
+            <p class="card-subtitle">Real-time stats and local face recognition sensitivity tuning.</p>
+
+            <!-- Stats Counter Grid -->
+            <div class="grid-4" style="margin-bottom:26px;">
+                <div class="stat-box">
+                    <div id="stat-total-photos" class="stat-number">0</div>
+                    <div class="stat-label">Total Photos</div>
+                </div>
+                <div class="stat-box">
+                    <div id="stat-total-faces" class="stat-number" style="color:var(--color-gold-dark);">0</div>
+                    <div class="stat-label">Faces Indexed</div>
+                </div>
+                <div class="stat-box">
+                    <div id="stat-multi-faces" class="stat-number">0</div>
+                    <div class="stat-label">Multi-Face Photos</div>
+                </div>
+                <div class="stat-box">
+                    <div id="stat-zero-faces" class="stat-number" style="color:var(--color-muted);">0</div>
+                    <div class="stat-label">Zero-Face Photos</div>
+                </div>
+            </div>
+
+            <!-- Settings Form -->
+            <form id="settings-form">
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label class="form-label" for="setting-event-name">Event / Wedding Title:</label>
+                        <input type="text" id="setting-event-name" class="form-control" placeholder="e.g. Priya & Rahul's Wedding Reception">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="setting-guest-url">Custom Guest Page Base URL (optional):</label>
+                        <input type="text" id="setting-guest-url" class="form-control" placeholder="http://192.168.1.50:8000/guest or https://domain.com/guest">
+                    </div>
+                </div>
+
+                <div class="form-group" style="background:#faf8f5; padding:18px; border-radius:var(--radius-md); border:1px solid var(--color-border); margin-bottom:20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <label class="form-label" style="margin-bottom:0;" for="setting-threshold">
+                            Face Recognition Match Threshold (Cosine Distance):
+                        </label>
+                        <span id="threshold-val-badge" style="font-weight:700; font-family:monospace; background:white; padding:3px 12px; border-radius:var(--radius-sm); border:1px solid var(--color-border-gold); color:var(--color-primary);">
+                            0.363
+                        </span>
+                    </div>
+                    <input type="range" id="setting-threshold" min="0.25" max="0.55" step="0.01" value="0.363" style="width:100%; accent-color:var(--color-gold);">
+                    <div style="display:flex; justify-content:space-between; font-size:11.5px; color:var(--color-muted); margin-top:6px;">
+                        <span>0.25 (Lenient / More Matches)</span>
+                        <span style="font-weight:700; color:var(--color-primary);">0.363 (SFace Standard Recommended)</span>
+                        <span>0.55 (Strict / Fewer False Positives)</span>
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end;">
+                    <button type="submit" id="save-settings-btn" class="btn btn-primary">
+                        💾 Save Settings
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Bottom Card: Synced Event Photos Gallery -->
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+                <div>
+                    <h2 class="card-title" style="margin-bottom:4px;">
+                        <span>🖼️</span> Synced Photo Gallery
+                    </h2>
+                    <p class="card-subtitle" style="margin-bottom:0;">Synced high-resolution event rolls and detected face counts.</p>
+                </div>
+                <button id="refresh-gallery-btn" class="btn btn-secondary btn-sm">🔄 Refresh Gallery</button>
+            </div>
+
+            <div id="photos-gallery" class="photo-grid">
+                <!-- Injected via JavaScript -->
+            </div>
+            <div id="gallery-empty" style="text-align:center; padding:50px 20px; color:var(--color-muted); display:none;">
+                No photos synced yet. Paste a Google Drive folder link above to begin!
+            </div>
+        </div>
+    </main>
+
+    <!-- Lightbox Modal -->
+    <div id="lightbox" class="lightbox-modal">
+        <button id="lightbox-close" class="lightbox-close">✕</button>
+        <div class="lightbox-img-wrapper">
+            <img id="lightbox-img" src="" alt="High-Res Photo">
+        </div>
+        <div class="lightbox-bar">
+            <a id="lightbox-download" href="" class="btn btn-gold btn-sm" download>⬇️ Download Full Resolution</a>
+        </div>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
