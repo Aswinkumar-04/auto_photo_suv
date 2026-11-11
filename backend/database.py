@@ -327,15 +327,6 @@ def delete_photo(photo_id: int) -> bool:
     return deleted
 
 
-def clear_all_photos():
-    """Remove all photo and face records from database."""
-    conn = get_connection()
-    with conn:
-        conn.execute("DELETE FROM faces")
-        conn.execute("DELETE FROM photos")
-    conn.close()
-
-
 def get_stats() -> Dict[str, Any]:
     """Calculate dashboard summary statistics."""
     conn = get_connection()
