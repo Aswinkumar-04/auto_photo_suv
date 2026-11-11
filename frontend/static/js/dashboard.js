@@ -206,7 +206,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const data = await res.json();
             if (res.ok) {
-                showAlert("Sync started in background.", "info");
+                // If switching folder, clear gallery visually immediately
+                photosGallery.innerHTML = "";
+                galleryEmpty.style.display = "block";
+                showAlert("Sync started. Previous photos cleared for new folder.", "info");
                 startSyncPolling();
             } else {
                 updateSyncUI("error", data.detail || "Failed to start sync.");

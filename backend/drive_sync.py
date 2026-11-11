@@ -142,9 +142,20 @@ class SyncManager:
 
         # Check if this is a NEW / DIFFERENT Google Drive folder
         current_folder_id = database.get_setting("drive_folder_id", "").strip()
-        if current_folder_id and current_folder_id != folder_id:
-            logger.info(f"New folder detected ({folder_id} vs current {current_folder_id}). Purging previous photos...")
+        if folder_id and folder_id != current_folder_id:
+            logger.info(f"Drive folder changed (new: {folder_id}, old: {current_folder_id}). Purging previous photos & embeddings...")
             database.clear_all_photos()
+            # Also reset local sync progress counts
+            self.progress = {
+                "status": "syncing",
+                "message": "Folder changed: Cleared previous photos. Connecting to new Drive folder...",
+                "total_files": 0,
+                "processed_files": 0,
+                "new_photos": 0,
+                "new_faces": 0,
+                "skipped_existing": 0,
+                "errors": [],
+            }
 
         # Save the folder URL & ID to DB settings
         database.set_setting("drive_folder_url", drive_url_or_id)
