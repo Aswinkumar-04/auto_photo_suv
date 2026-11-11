@@ -51,8 +51,16 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 SECRET_KEY = os.getenv("SECRET_KEY", "auto-photo-session-secret-key-change-in-prod-2026")
 SESSION_COOKIE_NAME = "auto_photo_session"
 
-# Google Drive API Configuration (Optional: Official API v3, falls back to direct unauthenticated sync if empty)
+# Google Drive Configuration
 GOOGLE_DRIVE_API_KEY = os.getenv("GOOGLE_DRIVE_API_KEY", "")
+GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "")
+GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+
+# Auto-detect service account credentials file in project root if present
+if not GOOGLE_SERVICE_ACCOUNT_FILE:
+    candidate_files = list(BASE_DIR.glob("*hale-trilogy*.json")) + list(BASE_DIR.glob("*service_account*.json"))
+    if candidate_files:
+        GOOGLE_SERVICE_ACCOUNT_FILE = str(candidate_files[0])
 
 # Image processing configuration
 try:

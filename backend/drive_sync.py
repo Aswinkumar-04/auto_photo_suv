@@ -26,6 +26,8 @@ from backend.config import (
     SUPPORTED_EXTENSIONS,
     THUMBNAIL_SIZE,
     GOOGLE_DRIVE_API_KEY,
+    GOOGLE_SERVICE_ACCOUNT_FILE,
+    GOOGLE_SERVICE_ACCOUNT_JSON,
 )
 from backend import database
 from backend.face_engine import get_face_engine
@@ -188,6 +190,76 @@ class SyncManager:
         """Stop the background auto-sync worker."""
         self._stop_auto_sync = True
 
+    def _sync_via_service_account(self, folder_id: str, temp_download_dir: Path, sa_path_or_json: str) -> List[Path]:
+        """Direct Google Drive v3 sync using Service Account credentials JSON."""
+        logger.info(f"Using Google Service Account for direct Drive connection to folder {folder_id}...")
+        self.progress["message"] = "Connecting to Google Drive via Service Account..."
+
+        try:
+            import json
+            import io
+            from google.oauth2 import service_account
+            from googleapiclient.discovery import build
+            from googleapiclient.http import MediaIoBaseDownload
+
+            scopes = ["https://www.googleapis.com/auth/drive.readonly"]
+
+            if sa_path_or_json.strip().startswith("{"):
+                info = json.loads(sa_path_or_json)
+                creds = service_account.Credentials.from_service_account_info(info, scopes=scopes)
+            else:
+                creds = service_account.Credentials.from_service_account_file(sa_path_or_json, scopes=scopes)
+
+            service = build("drive", "v3", credentials=creds, cache_discovery=False)
+
+            # List files in folder
+            files = []
+            page_token = None
+            query = f"'{folder_id}' in parents and trashed = false"
+
+            while True:
+                res = service.files().list(
+                    q=query,
+                    fields="nextPageToken, files(id, name, mimeType, size)",
+                    pageSize=100,
+                    pageToken=page_token,
+                ).execute()
+
+                for item in res.get("files", []):
+                    ext = Path(item["name"]).suffix.lower()
+                    if ext in SUPPORTED_EXTENSIONS or item.get("mimeType", "").startswith("image/"):
+                        files.append(item)
+
+                page_token = res.get("nextPageToken")
+                if not page_token:
+                    break
+
+            logger.info(f"Service Account discovered {len(files)} image files in Google Drive folder.")
+            downloaded_paths = []
+
+            for idx, file_meta in enumerate(files, 1):
+                file_id = file_meta["id"]
+                file_name = file_meta["name"]
+                dest_file = temp_download_dir / file_name
+
+                self.progress["message"] = f"Directly downloading photo {idx}/{len(files)}: {file_name}"
+
+                if not dest_file.exists():
+                    request = service.files().get_media(fileId=file_id)
+                    with open(dest_file, "wb") as fh:
+                        downloader = MediaIoBaseDownload(fh, request, chunksize=1024 * 1024)
+                        done = False
+                        while not done:
+                            status, done = downloader.next_chunk()
+
+                downloaded_paths.append(dest_file)
+
+            return downloaded_paths
+
+        except Exception as e:
+            logger.error(f"Service account sync error: {e}", exc_info=True)
+            raise
+
     def _sync_via_google_api(self, folder_id: str, temp_download_dir: Path, api_key: str) -> List[Path]:
         """Direct official Google Drive API v3 sync: fast, paginated, zero-intermediate."""
         logger.info(f"Using direct Google Drive API v3 with provided API Key for folder {folder_id}...")
@@ -268,9 +340,15 @@ class SyncManager:
         temp_download_dir.mkdir(parents=True, exist_ok=True)
 
         try:
+            sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", GOOGLE_SERVICE_ACCOUNT_JSON).strip()
+            sa_file = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", GOOGLE_SERVICE_ACCOUNT_FILE).strip()
             api_key = os.getenv("GOOGLE_DRIVE_API_KEY", GOOGLE_DRIVE_API_KEY).strip()
 
-            if api_key:
+            if sa_json or (sa_file and os.path.exists(sa_file)):
+                # Highest priority: Google Cloud Service Account (Direct authenticated connection)
+                target_sa = sa_json if sa_json else sa_file
+                image_files = self._sync_via_service_account(folder_id, temp_download_dir, target_sa)
+            elif api_key:
                 # Direct Google Cloud Drive API v3 path
                 image_files = self._sync_via_google_api(folder_id, temp_download_dir, api_key)
             else:

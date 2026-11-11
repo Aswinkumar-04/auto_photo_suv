@@ -26,8 +26,11 @@ storage/drive_temp/*
 storage/*.db
 storage/*.db-journal
 
-# Environment secrets
+# Environment secrets & credentials
 .env
+*.json
+!package.json
+!tsconfig.json
 
 # OS metadata
 .DS_Store
