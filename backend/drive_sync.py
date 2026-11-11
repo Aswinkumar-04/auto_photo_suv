@@ -196,7 +196,7 @@ class SyncManager:
         """Stop the background auto-sync worker."""
         self._stop_auto_sync = True
 
-    def _sync_via_service_account(self, folder_id: str, temp_download_dir: Path, sa_path_or_json: str) -> List[Path]:
+    def _sync_via_service_account(self, folder_id: str, temp_download_dir: Path, sa_path_or_json: str) -> List[Dict[str, Any]]:
         """Direct Google Drive v3 sync using Service Account credentials JSON."""
         logger.info(f"Using Google Service Account for direct Drive connection to folder {folder_id}...")
         self.progress["message"] = "Connecting to Google Drive via Service Account..."
@@ -241,26 +241,40 @@ class SyncManager:
                     break
 
             logger.info(f"Service Account discovered {len(files)} image files in Google Drive folder.")
-            downloaded_paths = []
+            items_to_process = []
 
             for idx, file_meta in enumerate(files, 1):
                 file_id = file_meta["id"]
                 file_name = file_meta["name"]
-                dest_file = temp_download_dir / file_name
+                file_size = int(file_meta.get("size", 0))
 
-                self.progress["message"] = f"Directly downloading photo {idx}/{len(files)}: {file_name}"
+                # Check if file is already processed in DB by drive_file_id
+                existing = database.get_photo_by_drive_id(file_id)
+                if existing:
+                    self.progress["skipped_existing"] += 1
+                    continue
 
-                if not dest_file.exists():
-                    request = service.files().get_media(fileId=file_id)
-                    with open(dest_file, "wb") as fh:
-                        downloader = MediaIoBaseDownload(fh, request, chunksize=1024 * 1024)
-                        done = False
-                        while not done:
-                            status, done = downloader.next_chunk()
+                self.progress["message"] = f"Streaming & indexing photo {idx}/{len(files)}: {file_name}"
 
-                downloaded_paths.append(dest_file)
+                # Stream file directly into in-memory buffer (No full file saved to disk!)
+                request = service.files().get_media(fileId=file_id)
+                fh = io.BytesIO()
+                downloader = MediaIoBaseDownload(fh, request, chunksize=2 * 1024 * 1024)
+                done = False
+                while not done:
+                    status, done = downloader.next_chunk()
 
-            return downloaded_paths
+                image_bytes = fh.getvalue()
+                fh.close()
+
+                items_to_process.append({
+                    "drive_file_id": file_id,
+                    "name": file_name,
+                    "bytes": image_bytes,
+                    "size": file_size,
+                })
+
+            return items_to_process
 
         except Exception as e:
             logger.error(f"Service account sync error: {e}", exc_info=True)
@@ -351,9 +365,48 @@ class SyncManager:
             api_key = os.getenv("GOOGLE_DRIVE_API_KEY", GOOGLE_DRIVE_API_KEY).strip()
 
             if sa_json or (sa_file and os.path.exists(sa_file)):
-                # Highest priority: Google Cloud Service Account (Direct authenticated connection)
+                # Highest priority: Google Cloud Service Account (Direct streaming in-memory, NO full files saved!)
                 target_sa = sa_json if sa_json else sa_file
-                image_files = self._sync_via_service_account(folder_id, temp_download_dir, target_sa)
+                items_to_process = self._sync_via_service_account(folder_id, temp_download_dir, target_sa)
+
+                self.progress["total_files"] = len(items_to_process)
+                face_engine = get_face_engine()
+
+                for idx, item in enumerate(items_to_process, 1):
+                    self.progress["processed_files"] = idx
+                    self.progress["message"] = f"AI face indexing {idx}/{len(items_to_process)}: {item['name']}"
+
+                    try:
+                        result = self.process_image_stream(
+                            image_bytes=item["bytes"],
+                            drive_file_id=item["drive_file_id"],
+                            original_name=item["name"],
+                            file_size=item["size"],
+                            face_engine=face_engine,
+                        )
+                        if result.get("is_new"):
+                            self.progress["new_photos"] += 1
+                            self.progress["new_faces"] += result.get("faces_count", 0)
+                    except Exception as e:
+                        err_msg = f"Failed processing {item['name']}: {str(e)}"
+                        logger.warning(err_msg)
+                        self.progress["errors"].append(err_msg)
+
+                # Finalize
+                now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                summary = (
+                    f"Sync complete. {self.progress['new_photos']} new photos added, "
+                    f"{self.progress['new_faces']} faces indexed, "
+                    f"{self.progress['skipped_existing']} already existed."
+                )
+                self.progress["status"] = "completed"
+                self.progress["message"] = summary
+                database.set_setting("sync_status", "completed")
+                database.set_setting("sync_message", summary)
+                database.set_setting("last_synced_at", now_iso)
+                logger.info(summary)
+                return
+
             elif api_key:
                 # Direct Google Cloud Drive API v3 path
                 image_files = self._sync_via_google_api(folder_id, temp_download_dir, api_key)
@@ -493,6 +546,77 @@ class SyncManager:
 
         finally:
             self.is_syncing = False
+
+    def process_image_stream(
+        self,
+        image_bytes: bytes,
+        drive_file_id: str,
+        original_name: str,
+        file_size: int,
+        face_engine=None,
+    ) -> Dict[str, Any]:
+        """
+        Stream-based ingestion without keeping full photos on disk:
+        1. Checks database for drive_file_id.
+        2. Detects faces directly from RAM buffer.
+        3. Creates tiny 450x450 preview thumbnail for fast UI loading.
+        4. Full photo is NOT saved on disk; downloads and views stream directly from Drive!
+        """
+        if face_engine is None:
+            face_engine = get_face_engine()
+
+        # Check if already indexed
+        existing = database.get_photo_by_drive_id(drive_file_id)
+        if existing:
+            return {"is_new": False, "photo_id": existing["id"], "faces_count": existing["faces_count"]}
+
+        file_hash = hashlib.sha256(image_bytes).hexdigest()
+
+        # Create tiny lightweight thumbnail for instant browser preview
+        clean_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", original_name)
+        thumb_filename = f"{drive_file_id[:12]}_{clean_name}.jpg"
+        dest_thumb_path = THUMBNAILS_DIR / thumb_filename
+
+        try:
+            import io
+            with Image.open(io.BytesIO(image_bytes)) as img:
+                img = ImageOps.exif_transpose(img)
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+                img.thumbnail(THUMBNAIL_SIZE, Image.Resampling.LANCZOS)
+                img.save(dest_thumb_path, "JPEG", quality=80, optimize=True)
+        except Exception as e:
+            logger.warning(f"Could not create thumbnail for {original_name}: {e}")
+
+        # Insert photo record into DB pointing directly to Google Drive!
+        photo_id = database.add_photo(
+            filename=thumb_filename,
+            original_name=original_name,
+            file_path="",  # Zero local storage: streams directly from Google Drive
+            thumbnail_path=str(dest_thumb_path),
+            file_size=file_size,
+            file_hash=file_hash,
+            drive_file_id=drive_file_id,
+            source="drive",
+        )
+
+        # Detect faces directly from in-memory bytes
+        try:
+            detected_faces = face_engine.detect_and_extract_faces(image_bytes)
+            for face in detected_faces:
+                database.add_face(
+                    photo_id=photo_id,
+                    bbox=face["bbox"],
+                    confidence=face["confidence"],
+                    embedding=face["embedding"],
+                )
+            database.update_photo_faces_count(photo_id, len(detected_faces))
+            faces_count = len(detected_faces)
+        except Exception as e:
+            logger.warning(f"Face extraction failed for {original_name}: {e}")
+            faces_count = 0
+
+        return {"is_new": True, "photo_id": photo_id, "faces_count": faces_count}
 
     def process_image_file(
         self,

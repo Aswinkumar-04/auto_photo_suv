@@ -286,14 +286,24 @@ class FaceEngine:
             if not row:
                 continue
 
+            drive_id = row["drive_file_id"]
+            # Direct Google Drive CDN view link if available, fallback to local path
+            if drive_id:
+                photo_view_url = f"https://drive.google.com/thumbnail?id={drive_id}&sz=w1920"
+                download_url = f"https://drive.google.com/uc?export=download&id={drive_id}"
+            else:
+                photo_view_url = f"/storage/photos/{row['filename']}"
+                download_url = f"/api/download-photo/{row['id']}"
+
             results.append(
                 {
                     "id": row["id"],
                     "filename": row["filename"],
                     "original_name": row["original_name"],
                     "thumbnail_url": f"/storage/thumbnails/{row['filename']}",
-                    "photo_url": f"/storage/photos/{row['filename']}",
-                    "download_url": f"/api/download-photo/{row['id']}",
+                    "photo_url": photo_view_url,
+                    "download_url": download_url,
+                    "drive_file_id": drive_id,
                     "match_score": round(score, 3),
                     "confidence_percent": int(min(100, max(0, score * 100))),
                     "faces_count": row["faces_count"],

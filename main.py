@@ -177,21 +177,31 @@ async def match_face(selfie: UploadFile = File(...)):
 
 @app.get("/api/download-photo/{photo_id}")
 async def download_photo(photo_id: int):
-    """Download individual high-resolution photo file."""
+    """Download individual high-resolution photo directly streamed from Google Drive."""
     row = database.get_photo(photo_id)
     if not row:
         raise HTTPException(status_code=404, detail="Photo not found.")
 
-    file_path = Path(row["file_path"])
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Photo file not found on disk.")
+    drive_file_id = row["drive_file_id"]
 
-    download_name = row["original_name"] or file_path.name
-    return FileResponse(
-        path=str(file_path),
-        filename=download_name,
-        media_type="application/octet-stream",
-    )
+    # If photo has Google Drive file ID, redirect directly to Google Drive high-speed CDN download
+    if drive_file_id:
+        return RedirectResponse(
+            url=f"https://drive.google.com/uc?export=download&id={drive_file_id}",
+            status_code=status.HTTP_302_FOUND,
+        )
+
+    # Local fallback if uploaded directly
+    file_path = Path(row["file_path"])
+    if file_path.exists():
+        download_name = row["original_name"] or file_path.name
+        return FileResponse(
+            path=str(file_path),
+            filename=download_name,
+            media_type="application/octet-stream",
+        )
+
+    raise HTTPException(status_code=404, detail="Photo source not available.")
 
 
 class ZipDownloadRequest(BaseModel):
