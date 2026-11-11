@@ -102,6 +102,46 @@ def set_setting(key: str, value: str):
     conn.close()
 
 
+def clear_all_photos():
+    """Wipe all photo records, face embeddings, and local image files."""
+    from backend.config import PHOTOS_DIR, THUMBNAILS_DIR, STORAGE_DIR
+    import shutil
+    import os
+
+    conn = get_connection()
+    with conn:
+        conn.execute("DELETE FROM faces")
+        conn.execute("DELETE FROM photos")
+        # Reset autoincrement counters
+        conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('photos', 'faces')")
+
+    # Clean storage directories
+    for directory in (PHOTOS_DIR, THUMBNAILS_DIR):
+        if directory.exists():
+            for item in directory.iterdir():
+                if item.name != ".gitkeep":
+                    try:
+                        if item.is_file():
+                            item.unlink()
+                        elif item.is_dir():
+                            shutil.rmtree(item)
+                    except Exception:
+                        pass
+
+    # Clean drive temp
+    temp_dir = STORAGE_DIR / "drive_temp"
+    if temp_dir.exists():
+        for item in temp_dir.iterdir():
+            if item.name != ".gitkeep":
+                try:
+                    if item.is_file():
+                        item.unlink()
+                    elif item.is_dir():
+                        shutil.rmtree(item)
+                except Exception:
+                    pass
+
+
 def get_all_settings() -> Dict[str, str]:
     """Retrieve all current system settings."""
     conn = get_connection()

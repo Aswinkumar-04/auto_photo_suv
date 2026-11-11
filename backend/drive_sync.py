@@ -140,6 +140,12 @@ class SyncManager:
                 ),
             }
 
+        # Check if this is a NEW / DIFFERENT Google Drive folder
+        current_folder_id = database.get_setting("drive_folder_id", "").strip()
+        if current_folder_id and current_folder_id != folder_id:
+            logger.info(f"New folder detected ({folder_id} vs current {current_folder_id}). Purging previous photos...")
+            database.clear_all_photos()
+
         # Save the folder URL & ID to DB settings
         database.set_setting("drive_folder_url", drive_url_or_id)
         database.set_setting("drive_folder_id", folder_id)

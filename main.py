@@ -349,6 +349,20 @@ async def upload_photos(files: List[UploadFile] = File(...)):
     return {"success": True, "processed": len(results), "details": results}
 
 
+@app.post("/api/dashboard/photos/reset", dependencies=[Depends(require_admin)])
+async def reset_event_photos():
+    """Wipe all synced event photos, faces, and thumbnails for a clean event slate."""
+    sync_manager = get_sync_manager()
+    if sync_manager.is_syncing:
+        raise HTTPException(status_code=400, detail="Cannot reset while a sync is actively in progress.")
+    database.clear_all_photos()
+    database.set_setting("drive_folder_id", "")
+    database.set_setting("drive_folder_url", "")
+    database.set_setting("sync_status", "idle")
+    database.set_setting("sync_message", "All photos cleared. Ready for new Drive link.")
+    return {"success": True, "message": "All previous photos and data have been wiped."}
+
+
 @app.get("/api/dashboard/photos", dependencies=[Depends(require_admin)])
 async def list_dashboard_photos(page: int = 1, per_page: int = 40):
     """Paginated list of all synced event photos for dashboard viewer."""

@@ -416,6 +416,32 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    // Reset / Clear all photos button
+    const resetPhotosBtn = document.getElementById("reset-photos-btn");
+    if (resetPhotosBtn) {
+        resetPhotosBtn.addEventListener("click", async () => {
+            if (!confirm("Are you sure you want to clear all synced photos and face records? This cannot be undone.")) {
+                return;
+            }
+            try {
+                resetPhotosBtn.disabled = true;
+                const res = await fetch("/api/dashboard/photos/reset", { method: "POST" });
+                const data = await res.json();
+                if (res.ok) {
+                    showAlert(data.message || "All photos cleared.", "success");
+                    await loadStats();
+                    await loadPhotos();
+                } else {
+                    showAlert(data.detail || "Could not clear photos.", "danger");
+                }
+            } catch (err) {
+                showAlert("Network error trying to clear photos.", "danger");
+            } finally {
+                resetPhotosBtn.disabled = false;
+            }
+        });
+    }
+
     // Logout
     logoutBtn.addEventListener("click", async () => {
         await fetch("/api/auth/logout", { method: "POST" });
