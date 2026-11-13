@@ -16,6 +16,7 @@ type AppState = 'idle' | 'loading-models' | 'ready' | 'capturing' | 'processing'
 export default function GuestPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const faceapiRef = useRef<any>(null);
 
@@ -70,7 +71,7 @@ export default function GuestPage() {
       }
       setState('capturing');
     } catch (err) {
-      setErrorMsg('Camera access denied. Please allow camera and reload.');
+      setErrorMsg('Camera access denied. Please allow camera access or use photo upload.');
       setState('error');
     }
   }, []);
@@ -80,24 +81,17 @@ export default function GuestPage() {
     streamRef.current = null;
   }, []);
 
-  const capture = useCallback(async () => {
+  // Process face embedding and fetch matches
+  const processFaceAndSearch = async (imageSource: HTMLCanvasElement | HTMLImageElement) => {
     const faceapi = faceapiRef.current;
-    if (!videoRef.current || !canvasRef.current || !modelsReady || !faceapi) return;
+    if (!faceapi) return;
 
     setState('processing');
     stopCamera();
 
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(video, 0, 0);
-
     try {
-      // Detect face & extract 128D descriptor — runs entirely in browser
       const detection = await faceapi
-        .detectSingleFace(canvas)
+        .detectSingleFace(imageSource)
         .withFaceLandmarks()
         .withFaceDescriptor();
 
@@ -119,10 +113,34 @@ export default function GuestPage() {
       setState('results');
     } catch (err) {
       console.error(err);
-      setErrorMsg('Something went wrong. Please try again.');
+      setErrorMsg('Something went wrong matching your face. Please try again.');
       setState('error');
     }
+  };
+
+  const captureCamera = useCallback(async () => {
+    if (!videoRef.current || !canvasRef.current || !modelsReady) return;
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(video, 0, 0);
+
+    await processFaceAndSearch(canvas);
   }, [modelsReady, stopCamera]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !modelsReady) return;
+
+    const img = new Image();
+    img.onload = async () => {
+      await processFaceAndSearch(img);
+    };
+    img.src = URL.createObjectURL(file);
+  };
 
   const reset = useCallback(() => {
     stopCamera();
@@ -135,32 +153,59 @@ export default function GuestPage() {
     <main className="min-h-screen flex flex-col items-center px-4 py-8">
       {/* Header */}
       <div className="text-center mb-8">
-        <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+        <h1 className="text-4xl font-extrabold bg-gradient-to-r from-purple-400 via-pink-400 to-amber-300 bg-clip-text text-transparent">
           📸 SUV Photo Gallery
         </h1>
-        <p className="text-gray-400 mt-2">Take a selfie — find your event photos instantly</p>
+        <p className="text-gray-300 mt-2 text-sm sm:text-base">
+          Find all your event moments instantly with private on-device facial search
+        </p>
       </div>
 
       {/* Loading Models */}
       {state === 'loading-models' && (
         <div className="flex flex-col items-center gap-4 mt-16">
-          <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-300">Loading face recognition models…</p>
+          <div className="w-14 h-14 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-gray-300 text-sm">Initializing face AI in your browser…</p>
         </div>
       )}
 
-      {/* Ready — show Take Selfie button */}
+      {/* Ready — Choose Selfie Camera or Upload */}
       {state === 'ready' && (
-        <div className="flex flex-col items-center gap-6 mt-12">
-          <div className="text-8xl">🤳</div>
-          <p className="text-gray-300 text-center max-w-xs">
-            Your selfie is processed <strong>only in your browser</strong> and never uploaded to any server.
-          </p>
+        <div className="flex flex-col items-center gap-6 mt-8 max-w-sm w-full bg-white/5 border border-white/10 rounded-3xl p-8 backdrop-blur shadow-2xl">
+          <div className="text-7xl">🤳</div>
+          <div className="text-center space-y-1">
+            <h2 className="text-lg font-bold text-white">Find Your Photos</h2>
+            <p className="text-gray-400 text-xs">
+              Your photo is processed 100% on your device and is never stored on the server.
+            </p>
+          </div>
+
           <button
             onClick={startCamera}
-            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold py-4 px-10 rounded-full text-lg shadow-lg transition-all"
+            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold py-3.5 px-6 rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2"
           >
-            📷 Take a Selfie
+            <span>📷</span> Take a Selfie
+          </button>
+
+          <div className="flex items-center gap-3 w-full">
+            <div className="h-px bg-white/10 flex-1" />
+            <span className="text-gray-500 text-xs">OR</span>
+            <div className="h-px bg-white/10 flex-1" />
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
+
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full bg-white/10 hover:bg-white/15 text-white font-medium py-3 px-6 rounded-2xl border border-white/15 transition flex items-center justify-center gap-2 text-sm"
+          >
+            <span>🖼️</span> Upload from Gallery
           </button>
         </div>
       )}
@@ -168,46 +213,59 @@ export default function GuestPage() {
       {/* Camera viewfinder */}
       {state === 'capturing' && (
         <div className="flex flex-col items-center gap-4 w-full max-w-sm">
-          <div className="relative rounded-2xl overflow-hidden border-4 border-purple-500 shadow-2xl w-full">
+          <div className="relative rounded-3xl overflow-hidden border-4 border-purple-500/70 shadow-2xl w-full aspect-[3/4] bg-black">
             <video
               ref={videoRef}
-              className="w-full object-cover"
+              className="w-full h-full object-cover"
               playsInline
               muted
             />
-            {/* Face guide oval */}
+            {/* Guide oval */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-48 h-60 border-4 border-yellow-400 rounded-full opacity-60" />
+              <div className="w-48 h-64 border-2 border-dashed border-yellow-300 rounded-full opacity-70" />
             </div>
           </div>
-          <p className="text-yellow-300 text-sm">Centre your face in the oval</p>
-          <button
-            onClick={capture}
-            className="w-20 h-20 bg-white rounded-full border-4 border-purple-500 shadow-xl flex items-center justify-center text-3xl hover:scale-105 transition-transform"
-          >
-            📸
-          </button>
+          <p className="text-yellow-300 text-xs">Align your face inside the circle</p>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={captureCamera}
+              className="w-18 h-18 bg-white rounded-full border-4 border-purple-500 shadow-xl flex items-center justify-center text-3xl hover:scale-105 active:scale-95 transition-transform"
+            >
+              📸
+            </button>
+            <button
+              onClick={reset}
+              className="text-xs bg-white/10 hover:bg-white/20 px-3 py-2 rounded-full text-gray-300"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Hidden canvas for capture */}
+      {/* Hidden canvas for extraction */}
       <canvas ref={canvasRef} className="hidden" />
 
       {/* Processing spinner */}
       {state === 'processing' && (
         <div className="flex flex-col items-center gap-4 mt-16">
-          <div className="w-16 h-16 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-300">Analysing your face & searching photos…</p>
+          <div className="w-14 h-14 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-gray-200 text-sm">Matching your face against event photos…</p>
         </div>
       )}
 
       {/* No face detected */}
       {state === 'no-face' && (
-        <div className="flex flex-col items-center gap-6 mt-12 text-center">
+        <div className="flex flex-col items-center gap-4 mt-12 text-center max-w-xs">
           <div className="text-6xl">😶</div>
-          <p className="text-yellow-300 text-lg">No face detected!</p>
-          <p className="text-gray-400 max-w-xs">Make sure your face is clearly visible and well-lit.</p>
-          <button onClick={reset} className="bg-purple-700 hover:bg-purple-600 text-white py-3 px-8 rounded-full">
+          <h3 className="text-yellow-300 text-lg font-bold">No Face Detected</h3>
+          <p className="text-gray-400 text-xs">
+            Please make sure your face is clearly lit and visible, then try again.
+          </p>
+          <button
+            onClick={reset}
+            className="bg-purple-700 hover:bg-purple-600 text-white py-2.5 px-6 rounded-full text-sm font-medium transition"
+          >
             Try Again
           </button>
         </div>
@@ -215,71 +273,76 @@ export default function GuestPage() {
 
       {/* Error */}
       {state === 'error' && (
-        <div className="flex flex-col items-center gap-6 mt-12 text-center">
-          <div className="text-6xl">❌</div>
-          <p className="text-red-400">{errorMsg}</p>
-          <button onClick={reset} className="bg-purple-700 hover:bg-purple-600 text-white py-3 px-8 rounded-full">
+        <div className="flex flex-col items-center gap-4 mt-12 text-center max-w-xs">
+          <div className="text-5xl">⚠️</div>
+          <p className="text-red-400 text-sm">{errorMsg}</p>
+          <button
+            onClick={reset}
+            className="bg-purple-700 hover:bg-purple-600 text-white py-2.5 px-6 rounded-full text-sm font-medium transition"
+          >
             Retry
           </button>
         </div>
       )}
 
-      {/* Results */}
+      {/* Results Grid */}
       {state === 'results' && (
-        <div className="w-full max-w-4xl">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-purple-300">
-              {photos.length > 0
-                ? `🎉 Found ${photos.length} photo${photos.length > 1 ? 's' : ''}!`
-                : '😕 No photos found'}
-            </h2>
+        <div className="w-full max-w-5xl">
+          <div className="flex items-center justify-between mb-6 bg-white/5 border border-white/10 p-4 rounded-2xl">
+            <div>
+              <h2 className="text-xl font-bold text-white">
+                {photos.length > 0
+                  ? `🎉 Found ${photos.length} Photo${photos.length > 1 ? 's' : ''}`
+                  : '😕 No Matched Photos'}
+              </h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {photos.length > 0
+                  ? 'Click any photo to view full resolution or download'
+                  : 'Try taking another selfie with different angle or better light'}
+              </p>
+            </div>
             <button
               onClick={reset}
-              className="text-sm bg-white/10 hover:bg-white/20 py-2 px-5 rounded-full"
+              className="text-xs font-semibold bg-purple-600 hover:bg-purple-500 py-2 px-4 rounded-xl transition"
             >
-              New Search
+              🔄 New Search
             </button>
           </div>
-
-          {photos.length === 0 && (
-            <p className="text-gray-400 text-center mt-8">
-              Your face wasn't matched in the event photos. Try retaking your selfie in better lighting.
-            </p>
-          )}
 
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
             {photos.map((photo) => (
               <div
                 key={photo.drive_file_id}
-                className="relative group rounded-xl overflow-hidden bg-white/5 border border-white/10 hover:border-purple-400 transition-all"
+                className="group relative rounded-2xl overflow-hidden bg-white/5 border border-white/10 shadow-md hover:shadow-purple-500/20 transition-all"
               >
-                {/* Thumbnail — streamed directly from Google Drive */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={photo.thumbnail_url}
                   alt={photo.name}
-                  className="w-full aspect-square object-cover"
+                  className="w-full aspect-[4/3] object-cover group-hover:scale-105 transition-transform duration-300"
                   loading="lazy"
                 />
 
-                {/* Overlay on hover */}
-                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
-                  <a
-                    href={photo.view_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="bg-purple-600 hover:bg-purple-500 text-white text-xs py-1.5 px-4 rounded-full w-full text-center"
-                  >
-                    👁️ View Full
-                  </a>
-                  <a
-                    href={photo.download_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="bg-green-700 hover:bg-green-600 text-white text-xs py-1.5 px-4 rounded-full w-full text-center"
-                  >
-                    ⬇️ Download
-                  </a>
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2">
+                  <p className="text-white text-xs truncate font-medium">{photo.name}</p>
+                  <div className="flex gap-2">
+                    <a
+                      href={photo.view_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 bg-purple-600 hover:bg-purple-500 text-white text-xs py-1.5 rounded-lg text-center font-medium"
+                    >
+                      👁️ View
+                    </a>
+                    <a
+                      href={photo.download_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 bg-green-700 hover:bg-green-600 text-white text-xs py-1.5 rounded-lg text-center font-medium"
+                    >
+                      ⬇️ Save
+                    </a>
+                  </div>
                 </div>
               </div>
             ))}
@@ -287,13 +350,12 @@ export default function GuestPage() {
         </div>
       )}
 
-      {/* Admin link at bottom */}
-      <div className="mt-auto pt-16 text-center">
-        <a href="/dashboard" className="text-gray-600 hover:text-gray-400 text-xs">
-          Admin Dashboard
+      {/* Footer / Admin Link */}
+      <footer className="mt-auto pt-16 text-center text-xs text-gray-500">
+        <a href="/dashboard" className="hover:text-gray-300 transition underline underline-offset-4">
+          Host Admin Dashboard
         </a>
-      </div>
+      </footer>
     </main>
   );
 }
-

@@ -14,7 +14,11 @@ ENV/
 .coverage
 htmlcov/
 
-# Local Storage (Render persistent disk mounts to /app/storage)
+# Local Storage & DBs
+*.db
+*.db-journal
+archive/legacy-python/storage/*.db
+storage/*.db
 storage/photos/*
 !storage/photos/.gitkeep
 storage/thumbnails/*
@@ -23,14 +27,21 @@ storage/selfies/*
 !storage/selfies/.gitkeep
 storage/drive_temp/*
 !storage/drive_temp/.gitkeep
-storage/*.db
-storage/*.db-journal
+
+# Node.js & Next.js
+node_modules/
+.next/
+*.log
 
 # Environment secrets & credentials
 .env
+.env.local
 *.json
 !package.json
 !tsconfig.json
+!next.config.js
+!vercel.json
+!*model-weights_manifest.json
 
 # OS metadata
 .DS_Store
