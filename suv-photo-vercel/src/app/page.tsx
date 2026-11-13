@@ -15,7 +15,6 @@ type AppState = 'idle' | 'loading-models' | 'ready' | 'capturing' | 'processing'
 
 export default function GuestPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const faceapiRef = useRef<any>(null);
@@ -36,6 +35,7 @@ export default function GuestPage() {
         if (!mounted) return;
         faceapiRef.current = faceapi;
 
+        console.log('Loading face-api neural net weights...');
         await Promise.all([
           faceapi.nets.ssdMobilenetv1.loadFromUri('/models'),
           faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
@@ -43,13 +43,14 @@ export default function GuestPage() {
         ]);
 
         if (mounted) {
+          console.log('Face models loaded successfully!');
           setModelsReady(true);
           setState('ready');
         }
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('Model load error:', err);
         if (mounted) {
-          setErrorMsg('Could not load face recognition models. Please reload.');
+          setErrorMsg('Could not load face recognition models. Please refresh the page.');
           setState('error');
         }
       }
@@ -68,7 +69,7 @@ export default function GuestPage() {
 
   const startCamera = useCallback(async () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setErrorMsg('Camera access is not supported by your browser or requires HTTPS. Please use the "Upload from Gallery" button.');
+      setErrorMsg('Camera is not supported on this browser or requires HTTPS. Please use "Upload from Gallery" below.');
       setState('error');
       return;
     }
@@ -81,11 +82,12 @@ export default function GuestPage() {
       streamRef.current = stream;
       setState('capturing');
     } catch (err: unknown) {
+      console.error('Camera access error:', err);
       const errName = (err as Error)?.name || '';
       if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
-        setErrorMsg('Camera permission denied. Please allow camera permissions in your browser or upload a photo.');
+        setErrorMsg('Camera permission denied. Please allow camera in browser settings or upload a photo.');
       } else {
-        setErrorMsg('Unable to access camera. Please check your camera settings or upload a photo.');
+        setErrorMsg('Unable to open camera. Please use photo upload or check camera permissions.');
       }
       setState('error');
     }
@@ -94,8 +96,11 @@ export default function GuestPage() {
   // Ensure stream connects to the video element as soon as it mounts into DOM
   useEffect(() => {
     if (state === 'capturing' && videoRef.current && streamRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-      videoRef.current.play().catch((e) => console.error('Video play failed:', e));
+      const video = videoRef.current;
+      video.srcObject = streamRef.current;
+      video.onloadedmetadata = () => {
+        video.play().catch((e) => console.error('Video play error:', e));
+      };
     }
   }, [state]);
 
@@ -109,22 +114,30 @@ export default function GuestPage() {
   // Process face embedding and fetch matches
   const processFaceAndSearch = async (imageSource: HTMLCanvasElement | HTMLImageElement) => {
     const faceapi = faceapiRef.current;
-    if (!faceapi) return;
+    if (!faceapi) {
+      setErrorMsg('Face recognition is still loading. Please try again.');
+      setState('error');
+      return;
+    }
 
     setState('processing');
     stopCamera();
 
     try {
+      // Detect single face with forgiving 0.3 confidence score for diverse lighting
+      const options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 });
       const detection = await faceapi
-        .detectSingleFace(imageSource)
+        .detectSingleFace(imageSource, options)
         .withFaceLandmarks()
         .withFaceDescriptor();
 
       if (!detection) {
+        console.warn('No face detected in capture.');
         setState('no-face');
         return;
       }
 
+      console.log('Face detected! Vector length:', detection.descriptor.length);
       const embedding = Array.from(detection.descriptor);
 
       const res = await fetch('/api/match', {
@@ -137,29 +150,38 @@ export default function GuestPage() {
       setPhotos(data.matches ?? []);
       setState('results');
     } catch (err) {
-      console.error(err);
-      setErrorMsg('Something went wrong matching your face. Please try again.');
+      console.error('Match search error:', err);
+      setErrorMsg('Something went wrong searching for your photos. Please try again.');
       setState('error');
     }
   };
 
   const captureCamera = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || !modelsReady) return;
+    if (!modelsReady) {
+      setErrorMsg('AI models are still initializing. Please wait a few seconds and try again.');
+      return;
+    }
+    if (!videoRef.current) return;
 
     const video = videoRef.current;
-    const canvas = canvasRef.current;
+    const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth || 640;
     canvas.height = video.videoHeight || 480;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     await processFaceAndSearch(canvas);
-  }, [modelsReady, stopCamera]);
+  }, [modelsReady]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !modelsReady) return;
+    if (!file) return;
+
+    if (!modelsReady) {
+      setErrorMsg('AI models are still initializing. Please wait a few seconds and try again.');
+      return;
+    }
 
     const img = new Image();
     img.onload = async () => {
@@ -208,7 +230,7 @@ export default function GuestPage() {
 
           <button
             onClick={startCamera}
-            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold py-3.5 px-6 rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98"
+            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold py-3.5 px-6 rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2 active:scale-95"
           >
             <span>📷</span> Take a Selfie
           </button>
@@ -229,7 +251,7 @@ export default function GuestPage() {
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="w-full bg-white/10 hover:bg-white/15 text-white font-medium py-3 px-6 rounded-2xl border border-white/15 transition flex items-center justify-center gap-2 text-sm active:scale-98"
+            className="w-full bg-white/10 hover:bg-white/15 text-white font-medium py-3 px-6 rounded-2xl border border-white/15 transition flex items-center justify-center gap-2 text-sm active:scale-95"
           >
             <span>🖼️</span> Upload from Gallery
           </button>
@@ -252,26 +274,24 @@ export default function GuestPage() {
               <div className="w-48 h-64 border-2 border-dashed border-yellow-300 rounded-full opacity-70" />
             </div>
           </div>
-          <p className="text-yellow-300 text-xs">Align your face inside the circle</p>
-          <div className="flex items-center gap-4">
+          <p className="text-yellow-300 text-xs font-medium">Position your face inside the guide</p>
+          <div className="flex items-center gap-5">
             <button
               onClick={captureCamera}
-              className="w-18 h-18 bg-white rounded-full border-4 border-purple-500 shadow-xl flex items-center justify-center text-3xl hover:scale-105 active:scale-95 transition-transform"
+              className="w-20 h-20 bg-white rounded-full border-4 border-purple-500 shadow-2xl flex items-center justify-center text-4xl hover:scale-105 active:scale-90 transition-transform cursor-pointer"
+              title="Snap Photo"
             >
               📸
             </button>
             <button
               onClick={reset}
-              className="text-xs bg-white/10 hover:bg-white/20 px-4 py-2.5 rounded-full text-gray-300"
+              className="text-xs bg-white/10 hover:bg-white/20 px-4 py-2.5 rounded-full text-gray-300 font-medium"
             >
               Cancel
             </button>
           </div>
         </div>
       )}
-
-      {/* Hidden canvas for extraction */}
-      <canvas ref={canvasRef} className="hidden" />
 
       {/* Processing spinner */}
       {state === 'processing' && (
@@ -287,7 +307,7 @@ export default function GuestPage() {
           <div className="text-6xl">😶</div>
           <h3 className="text-yellow-300 text-lg font-bold">No Face Detected</h3>
           <p className="text-gray-400 text-xs">
-            Please make sure your face is clearly lit and visible, then try again.
+            Please make sure your face is clearly lit and looking at the camera, then try again.
           </p>
           <button
             onClick={reset}
@@ -325,7 +345,7 @@ export default function GuestPage() {
               <p className="text-xs text-gray-400 mt-0.5">
                 {photos.length > 0
                   ? 'Click any photo to view full resolution or download'
-                  : 'No photos in the album matched your face yet. Make sure the event photos have been indexed in the admin dashboard!'}
+                  : 'No event photos matched your face. Try another selfie with clearer lighting or check back once photos are indexed!'}
               </p>
             </div>
             <button

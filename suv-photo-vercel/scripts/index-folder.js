@@ -64,3 +64,4 @@ async function indexDriveFolder() {
 }
 
 indexDriveFolder().catch(console.error);
+

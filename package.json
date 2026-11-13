@@ -7,3 +7,4 @@
     "start": "npm run start --prefix suv-photo-vercel"
   }
 }
+
