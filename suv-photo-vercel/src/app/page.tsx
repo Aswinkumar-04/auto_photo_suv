@@ -1,7 +1,6 @@
 'use client';
 
 import { useRef, useState, useCallback, useEffect } from 'react';
-import * as faceapi from '@vladmandic/face-api';
 
 type Photo = {
   drive_file_id: string;
@@ -18,29 +17,45 @@ export default function GuestPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const faceapiRef = useRef<any>(null);
 
   const [state, setState] = useState<AppState>('idle');
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
   const [modelsReady, setModelsReady] = useState(false);
 
-  // Load face-api.js models from /models on first render
+  // Dynamically load face-api in browser only (bypasses SSR)
   useEffect(() => {
+    let mounted = true;
     setState('loading-models');
-    Promise.all([
-      faceapi.nets.ssdMobilenetv1.loadFromUri('/models'),
-      faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
-      faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
-    ])
-      .then(() => {
-        setModelsReady(true);
-        setState('ready');
-      })
-      .catch((err) => {
+
+    async function initFaceApi() {
+      try {
+        const faceapi = await import('@vladmandic/face-api');
+        if (!mounted) return;
+        faceapiRef.current = faceapi;
+
+        await Promise.all([
+          faceapi.nets.ssdMobilenetv1.loadFromUri('/models'),
+          faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
+          faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
+        ]);
+
+        if (mounted) {
+          setModelsReady(true);
+          setState('ready');
+        }
+      } catch (err) {
         console.error('Model load error:', err);
-        setErrorMsg('Could not load face recognition models. Please reload.');
-        setState('error');
-      });
+        if (mounted) {
+          setErrorMsg('Could not load face recognition models. Please reload.');
+          setState('error');
+        }
+      }
+    }
+
+    initFaceApi();
+    return () => { mounted = false; };
   }, []);
 
   const startCamera = useCallback(async () => {
@@ -66,7 +81,8 @@ export default function GuestPage() {
   }, []);
 
   const capture = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || !modelsReady) return;
+    const faceapi = faceapiRef.current;
+    if (!videoRef.current || !canvasRef.current || !modelsReady || !faceapi) return;
 
     setState('processing');
     stopCamera();
@@ -79,7 +95,7 @@ export default function GuestPage() {
     ctx.drawImage(video, 0, 0);
 
     try {
-      // Detect face & extract 128D descriptor — runs entirely in this browser tab
+      // Detect face & extract 128D descriptor — runs entirely in browser
       const detection = await faceapi
         .detectSingleFace(canvas)
         .withFaceLandmarks()
