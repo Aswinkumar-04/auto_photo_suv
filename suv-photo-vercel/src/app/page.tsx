@@ -59,27 +59,52 @@ export default function GuestPage() {
     return () => { mounted = false; };
   }, []);
 
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  }, []);
+
   const startCamera = useCallback(async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setErrorMsg('Camera access is not supported by your browser or requires HTTPS. Please use the "Upload from Gallery" button.');
+      setState('error');
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
       setState('capturing');
-    } catch (err) {
-      setErrorMsg('Camera access denied. Please allow camera access or use photo upload.');
+    } catch (err: unknown) {
+      const errName = (err as Error)?.name || '';
+      if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
+        setErrorMsg('Camera permission denied. Please allow camera permissions in your browser or upload a photo.');
+      } else {
+        setErrorMsg('Unable to access camera. Please check your camera settings or upload a photo.');
+      }
       setState('error');
     }
   }, []);
 
-  const stopCamera = useCallback(() => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-  }, []);
+  // Ensure stream connects to the video element as soon as it mounts into DOM
+  useEffect(() => {
+    if (state === 'capturing' && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch((e) => console.error('Video play failed:', e));
+    }
+  }, [state]);
+
+  // Clean up stream on unmount
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, [stopCamera]);
 
   // Process face embedding and fetch matches
   const processFaceAndSearch = async (imageSource: HTMLCanvasElement | HTMLImageElement) => {
@@ -123,10 +148,11 @@ export default function GuestPage() {
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(video, 0, 0);
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     await processFaceAndSearch(canvas);
   }, [modelsReady, stopCamera]);
@@ -182,7 +208,7 @@ export default function GuestPage() {
 
           <button
             onClick={startCamera}
-            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold py-3.5 px-6 rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2"
+            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold py-3.5 px-6 rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98"
           >
             <span>📷</span> Take a Selfie
           </button>
@@ -203,7 +229,7 @@ export default function GuestPage() {
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="w-full bg-white/10 hover:bg-white/15 text-white font-medium py-3 px-6 rounded-2xl border border-white/15 transition flex items-center justify-center gap-2 text-sm"
+            className="w-full bg-white/10 hover:bg-white/15 text-white font-medium py-3 px-6 rounded-2xl border border-white/15 transition flex items-center justify-center gap-2 text-sm active:scale-98"
           >
             <span>🖼️</span> Upload from Gallery
           </button>
@@ -216,9 +242,10 @@ export default function GuestPage() {
           <div className="relative rounded-3xl overflow-hidden border-4 border-purple-500/70 shadow-2xl w-full aspect-[3/4] bg-black">
             <video
               ref={videoRef}
-              className="w-full h-full object-cover"
+              autoPlay
               playsInline
               muted
+              className="w-full h-full object-cover"
             />
             {/* Guide oval */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -235,7 +262,7 @@ export default function GuestPage() {
             </button>
             <button
               onClick={reset}
-              className="text-xs bg-white/10 hover:bg-white/20 px-3 py-2 rounded-full text-gray-300"
+              className="text-xs bg-white/10 hover:bg-white/20 px-4 py-2.5 rounded-full text-gray-300"
             >
               Cancel
             </button>
@@ -298,7 +325,7 @@ export default function GuestPage() {
               <p className="text-xs text-gray-400 mt-0.5">
                 {photos.length > 0
                   ? 'Click any photo to view full resolution or download'
-                  : 'Try taking another selfie with different angle or better light'}
+                  : 'No photos in the album matched your face yet. Make sure the event photos have been indexed in the admin dashboard!'}
               </p>
             </div>
             <button
