@@ -1,0 +1,9 @@
+{
+  "name": "auto-photo-root",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev --prefix suv-photo-vercel",
+    "build": "npm run build --prefix suv-photo-vercel",
+    "start": "npm run start --prefix suv-photo-vercel"
+  }
+}
